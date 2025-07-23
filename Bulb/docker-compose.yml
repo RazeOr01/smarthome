@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  smartbulb:
+    build: .
+    container_name: smartbulb
+    command: python main.py
+    network_mode: "host"
+    cap_add:
+      - NET_RAW           # necessary for arping
+    depends_on:
+      - cloud
+
+  cloud:
+    build: .
+    container_name: cloud
+    command: python cloud_server.py
+    network_mode: "host"

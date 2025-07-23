@@ -1,0 +1,13 @@
+services:
+  analyseScript:
+    build: ./analyse_script
+    image: analysecsv
+    volumes:
+      - ./output:/app/output
+    command: python3 test_pandas.py
+  bulb:
+      build: ./Bulb
+      image: bulb
+      ports:
+        - "5000:5000"
+      command: python3 bulb.py
