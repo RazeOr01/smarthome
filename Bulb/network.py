@@ -13,11 +13,11 @@ def send_arp(router_ip="192.168.0.1"):
 
 #Heartbeat
 
-def heartbeat(cloud_ip="172.18.106.184"):
+def heartbeat(cloud_ip="02dc9b66-36ca-4b9d-8317-4351b5154dff-00-2eq4ao9pa9js6.picard.replit.dev"):
     while True:
         try:
             print("[HEARTBEAT] Sending to cloud...")
-            requests.post(f"https://{cloud_ip}:6000/heartbeat", json={"status": "alive"}, verify=False)
+            requests.post(f"https://{cloud_ip}/heartbeat", json={"status": "alive"}, verify=False)
         except Exception as e:
             print(f"[HEARTBEAT] Failed: {e}")
         time.sleep(60)

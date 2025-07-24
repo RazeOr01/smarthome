@@ -24,12 +24,12 @@ def run_random_scenarios():
 
 if __name__ == "__main__":
     threading.Thread(
-        target=lambda: control_app.run(host="172.18.106.182", port=5000, ssl_context=("./cert.pem", "./key.pem")),
+        target=lambda: control_app.run(host="192.168.0.200", port=5000),
         daemon=True
     ).start()
-    #threading.Thread(target=send_arp, daemon=True).start() #keep alive
-    threading.Thread(target=heartbeat, kwargs={"cloud_ip": "172.18.106.184"}, daemon=True).start() #heartbeat
-    #threading.Thread(target=network_discovery, daemon=True).start() #udp broadcast
+    threading.Thread(target=send_arp, daemon=True).start() #keep alive
+    threading.Thread(target=heartbeat, daemon=True).start() #heartbeat
+    threading.Thread(target=network_discovery, daemon=True).start() #udp broadcast
     threading.Thread(target=run_random_scenarios, daemon=True).start() #scenario
 
     while True:

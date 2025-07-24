@@ -47,4 +47,4 @@ def brightness():
     return f"Brightness set to {level}", 200
 
 if __name__ == "__main__":
-    app.run(host="172.18.106.182", port=5000, ssl_context=("cert.pem", "key.pem"))
+    app.run(host="192.168.0.200", port=5000, ssl_context=("cert.pem", "key.pem"))

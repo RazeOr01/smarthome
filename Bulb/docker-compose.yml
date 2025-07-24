@@ -8,11 +8,11 @@ services:
     network_mode: "host"
     cap_add:
       - NET_RAW           # necessary for arping
-    depends_on:
-      - cloud
+#    depends_on:
+#      - cloud
 
-  cloud:
-    build: .
-    container_name: cloud
-    command: python cloud_server.py
-    network_mode: "host"
+#  cloud:
+#    build: .
+#    container_name: cloud
+#    command: python cloud_server.py
+#    network_mode: "host"
