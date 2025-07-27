@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+
+  cloud:
+    build: .
+    container_name: cloud
+    command: python cloud_server.py
+    network_mode: "host"
