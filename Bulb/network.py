@@ -13,7 +13,7 @@ def send_arp(router_ip="192.168.0.1"):
 
 #Heartbeat
 
-def heartbeat(cloud_ip="02dc9b66-36ca-4b9d-8317-4351b5154dff-00-2eq4ao9pa9js6.picard.replit.dev"):
+def heartbeat(cloud_ip="www.cesieat.ovh"):
     while True:
         try:
             print("[HEARTBEAT] Sending to cloud...")
