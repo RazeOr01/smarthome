@@ -50,4 +50,4 @@ def cloud_status():
         return {"error": str(e)}, 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=6000, ssl_context=("cert.pem", "ke
+    app.run(host="0.0.0.0", port=6000)
