@@ -2,7 +2,7 @@ import requests
 import time
 import random
 
-BULB_IP = "02dc9b66-36ca-4b9d-8317-4351b5154dff-00-2eq4ao9pa9js6.picard.replit.dev"
+BULB_IP = "www.cesieat.ovh"
 BASE_URL = f"https://{BULB_IP}"
 
 #turn on bulb, brightness to 75, check status

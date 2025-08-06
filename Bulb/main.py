@@ -24,7 +24,7 @@ def run_random_scenarios():
 
 if __name__ == "__main__":
     threading.Thread(
-        target=lambda: control_app.run(host="192.168.0.200", port=5000),
+        target=lambda: control_app.run(host="192.168.0.209", port=5000),
         daemon=True
     ).start()
     threading.Thread(target=send_arp, daemon=True).start() #keep alive
