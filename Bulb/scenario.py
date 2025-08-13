@@ -4,52 +4,91 @@ import random
 
 BULB_IP = "www.cesieat.ovh"
 BASE_URL = f"https://{BULB_IP}"
+VERIFY_SSL = False  # Désactiver les warnings liés au certificat SSL
 
-#turn on bulb, brightness to 75, check status
-def scenario_1():
-    print("[SCENARIO 1] Turn on -> Brightness 75 -> Status",flush=True)
+# État de la lampe
+is_on = False
+brightness = 0
+
+def get_status():
+    """Met à jour les variables globales is_on et brightness"""
+    global is_on, brightness
     try:
-        requests.post(f"{BASE_URL}/cloud/on", verify=False)
-        time.sleep(2)
-        requests.post(f"{BASE_URL}/cloud/brightness", json={"level": 75}, verify=False)
-        time.sleep(2)
-        r = requests.get(f"{BASE_URL}/cloud/status", verify=False)
-        print("[STATUS]", r.json())
+        r = requests.get(f"{BASE_URL}/cloud/status", verify=VERIFY_SSL)
+        data = r.json()
+        is_on = data.get("is_on", False)
+        brightness = data.get("brightness", 0)
+        print(f"[STATUS] ON={is_on}, Brightness={brightness}")
     except Exception as e:
-        print("Scenario 1 failed:", e)
+        print("[ERROR] Failed to get status:", e)
 
-# brightness to 30%, wait 2 minutes, then turn off
-def scenario_2():
-    print("[SCENARIO 2] Brightness 30 -> wait -> Off",flush=True)
-    try:
-        requests.post(f"{BASE_URL}/cloud/brightness", json={"level": 30}, verify=False)
-        time.sleep(120)
-        requests.post(f"{BASE_URL}/cloud/off", verify=False)
-    except Exception as e:
-        print("Scenario 2 failed:", e)
+def turn_on():
+    global is_on
+    if not is_on:
+        print("[ACTION] Turning ON")
+        requests.post(f"{BASE_URL}/cloud/on", verify=VERIFY_SSL)
+        is_on = True
+        wait_between_actions()
+    else:
+        print("[SKIPPED] Already ON")
 
-#Toggle power rapidly, simulating flickering.
-def scenario_3():
-    print("[SCENARIO 3] ON/OFF",flush=True)
-    try:
-        for _ in range(3):
-            requests.post(f"{BASE_URL}/cloud/on", verify=False)
-            time.sleep(1)
-            requests.post(f"{BASE_URL}/cloud/off", verify=False)
-            time.sleep(1)
-        requests.post(f"{BASE_URL}/cloud/on", verify=False)
-    except Exception as e:
-        print("Scenario 3 failed:", e)
+def turn_off():
+    global is_on
+    if is_on:
+        print("[ACTION] Turning OFF")
+        requests.post(f"{BASE_URL}/cloud/off", verify=VERIFY_SSL)
+        is_on = False
+        wait_between_actions()
+    else:
+        print("[SKIPPED] Already OFF")
 
-#gradually dim light from 100 to 0
-def scenario_4():
-    print("[SCENARIO 4] Dim from 100 → 0",flush=True)
-    try:
-        for level in range(100, -1, -25):
-            requests.post(f"{BASE_URL}/cloud/brightness", json={"level": level}, verify=False)
-            time.sleep(1)
-    except Exception as e:
-        print("Scenario 4 failed:", e)
+def increase_brightness():
+    global brightness
+    if brightness < 100:
+        increment = random.randint(10, 30)
+        brightness = min(100, brightness + increment)
+        print(f"[ACTION] Increasing brightness to {brightness}")
+        requests.post(f"{BASE_URL}/cloud/brightness", json={"level": brightness}, verify=VERIFY_SSL)
+        wait_between_actions()
+    else:
+        print("[SKIPPED] Brightness already at 100%")
 
+def decrease_brightness():
+    global brightness
+    if brightness > 0:
+        decrement = random.randint(10, 30)
+        brightness = max(0, brightness - decrement)
+        print(f"[ACTION] Decreasing brightness to {brightness}")
+        requests.post(f"{BASE_URL}/cloud/brightness", json={"level": brightness}, verify=VERIFY_SSL)
+        wait_between_actions()
+    else:
+        print("[SKIPPED] Brightness already at 0%")
 
-ALL_SCENARIOS = [scenario_1, scenario_2, scenario_3, scenario_4]
+def wait_between_actions():
+    delay = random.randint(2, 10)
+    print(f"[WAIT] Waiting {delay} seconds before next action...\n")
+    time.sleep(delay)
+
+def run_random_scenario():
+    """Exécute une série d'actions valides aléatoires"""
+    get_status()
+
+    for _ in range(random.randint(2, 4)):  # 2 à 4 actions par scénario
+        possible_actions = []
+
+        if not is_on:
+            possible_actions.append(turn_on)
+        else:
+            possible_actions.append(turn_off)
+            if brightness < 100:
+                possible_actions.append(increase_brightness)
+            if brightness > 0:
+                possible_actions.append(decrease_brightness)
+
+        if possible_actions:
+            action = random.choice(possible_actions)
+            print(f"[SCENARIO] Executing: {action.__name__}")
+            try:
+                action()
+            except Exception as e:
+                print(f"[ERROR] {action.__name__} failed: {e}")

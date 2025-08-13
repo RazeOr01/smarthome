@@ -8,15 +8,13 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from network import send_arp, heartbeat, network_discovery
 from bulb import app as control_app
-from scenario import ALL_SCENARIOS
+from scenario import run_random_scenario  
 
-def run_random_scenarios():
-    print("[THREAD] run_random_scenarios started")
+def scenario_loop():
+    print("[THREAD] scenario_loop started")
     while True:
         try:
-            scenario = random.choice(ALL_SCENARIOS)
-            print(f"[SIMULATION] Executing scenario: {scenario.__name__}")
-            scenario()
+            run_random_scenario()  
         except Exception:
             print("[ERROR] Scenario crashed:")
             traceback.print_exc()
@@ -27,10 +25,11 @@ if __name__ == "__main__":
         target=lambda: control_app.run(host="0.0.0.0", port=5000),
         daemon=True
     ).start()
-    threading.Thread(target=send_arp, daemon=True).start() #keep alive
-    threading.Thread(target=heartbeat, daemon=True).start() #heartbeat
-    threading.Thread(target=network_discovery, daemon=True).start() #udp broadcast
-    threading.Thread(target=run_random_scenarios, daemon=True).start() #scenario
+
+    threading.Thread(target=send_arp, daemon=True).start()
+    threading.Thread(target=heartbeat, daemon=True).start()
+    threading.Thread(target=network_discovery, daemon=True).start()
+    threading.Thread(target=scenario_loop, daemon=True).start()
 
     while True:
         time.sleep(60)
