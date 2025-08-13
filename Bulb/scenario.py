@@ -4,14 +4,13 @@ import random
 
 BULB_IP = "www.cesieat.ovh"
 BASE_URL = f"https://{BULB_IP}"
-VERIFY_SSL = False  # Désactiver les warnings liés au certificat SSL
+VERIFY_SSL = False  
 
-# État de la lampe
+
 is_on = False
 brightness = 0
 
 def get_status():
-    """Met à jour les variables globales is_on et brightness"""
     global is_on, brightness
     try:
         r = requests.get(f"{BASE_URL}/cloud/status", verify=VERIFY_SSL)
@@ -70,10 +69,9 @@ def wait_between_actions():
     time.sleep(delay)
 
 def run_random_scenario():
-    """Exécute une série d'actions valides aléatoires"""
     get_status()
 
-    for _ in range(random.randint(2, 4)):  # 2 à 4 actions par scénario
+    for _ in range(random.randint(2, 4)):  
         possible_actions = []
 
         if not is_on:
