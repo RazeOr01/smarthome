@@ -8,13 +8,13 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from network import send_arp, heartbeat, network_discovery
 from bulb import app as control_app
-from scenario import run_random_scenario  
+from scenario import main
 
 def scenario_loop():
     print("[THREAD] scenario_loop started")
     while True:
         try:
-            run_random_scenario()  
+            main()
         except Exception:
             print("[ERROR] Scenario crashed:")
             traceback.print_exc()
