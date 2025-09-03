@@ -1,6 +1,6 @@
 services:
   bridge:
-    build: ./bridge
+    build: ./linux
     container_name: matter-bridge
     network_mode: host
     privileged: true
