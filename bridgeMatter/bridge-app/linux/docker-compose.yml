@@ -1,0 +1,16 @@
+services:
+  bridge:
+    build: ./bridge
+    container_name: matter-bridge
+    network_mode: host
+    privileged: true
+    environment:
+      - CLOUD_BASE_URL=http://127.0.0.1:6000
+    volumes:
+      - /home/pi/connectedhomeip:/opt/connectedhomeip   # monte ton repo local
+    working_dir: /opt/connectedhomeip/examples/bridge-app/linux
+    command: >
+      bash -lc "source /opt/connectedhomeip/scripts/activate.sh &&
+                gn gen out/debug &&
+                ninja -C out/debug &&
+                ./out/debug/chip-bridge-app"
