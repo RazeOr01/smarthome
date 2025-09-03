@@ -48,7 +48,7 @@ def turn_on():
     global is_on
     if not is_on:
         print("[ACTION] Turning ON")
-        requests.post(f"{BASE_URL}/cloud/on", verify=VERIFY_SSL)
+        requests.post(  f"{BASE_URL}/cloud/on", verify=VERIFY_SSL)
         is_on = True
         wait_between_actions()
     else:
