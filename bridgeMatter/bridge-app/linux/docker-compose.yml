@@ -1,16 +1,30 @@
+version: "3.9"
+
 services:
   bridge:
-    build: .
+    image: ubuntu:22.04
     container_name: matter-bridge
-    network_mode: host
-    privileged: true
+    network_mode: host            # indispensable pour Matter (IPv6, mDNS)
+    privileged: true              # utile si commissioning BLE; sinon tu peux retirer
     environment:
-      - CLOUD_BASE_URL=http://127.0.0.1:6000
+      - CLOUD_BASE_URL=http://127.0.0.1:6000   # adapte si ton cloud n'est pas local
+      # - CLOUD_API_KEY=...                    # si tu en utilises un
+    working_dir: /opt/bridgeMatter/bridge-app/linux
     volumes:
-      - /home/pi/connectedhomeip:/opt/connectedhomeip   # monte ton repo local
-    working_dir: /opt/connectedhomeip/examples/bridge-app/linux
+      # Monte TOUT ton projet (là où se trouve bridge-app/ et scripts/)
+      - /home/gab/PycharmProjects/UCD/bridgeMatter:/opt/bridgeMatter:rw
     command: >
-      bash -lc "source /opt/connectedhomeip/scripts/activate.sh &&
-                gn gen out/debug &&
-                ninja -C out/debug &&
-                ./out/debug/chip-bridge-app"
+      bash -lc "
+        apt-get update &&
+        DEBIAN_FRONTEND=noninteractive apt-get install -y
+          git gcc g++ python3 python3-venv python3-dev
+          pkg-config libssl-dev libdbus-1-dev libglib2.0-dev
+          ninja-build unzip curl ca-certificates &&
+        # Active l'env Matter (ton activate.sh)
+        source /opt/bridgeMatter/scripts/activate.sh &&
+        # Build du bridge
+        gn gen out/debug &&
+        ninja -C out/debug &&
+        # Run
+        ./out/debug/chip-bridge-app
+      "
