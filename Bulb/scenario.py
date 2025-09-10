@@ -1,17 +1,26 @@
-import requests
+import os
 import time
 import random
+import uuid
+from typing import Optional, Dict, Any
 
-BULB_IP = "www.cesieat.ovh"
-BASE_URL = f"https://{BULB_IP}"
-VERIFY_SSL = False
+import requests
+from urllib3.util import Retry
+from requests.adapters import HTTPAdapter
 
-#proportion of the time to do nothing, 11% / 89%
+
+CLOUD_HOST = os.getenv("CLOUD_HOST", "www.cesieat.ovh")  # ton serveur cloud
+BASE_URL = f"https://{CLOUD_HOST}"
+VERIFY_TLS = os.getenv("VERIFY_TLS", "true").lower() != "false"
+API_KEY = os.getenv("API_KEY")  # optionnel, si activé côté cloud
+REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "5"))
+
 ACTIVE_RATIO = 0.11
 IDLE_SLEEP_RANGE = (60, 300)
 CYCLE_SLEEP = 1
 
-COLOR_ENDPOINT = f"{BASE_URL}/cloud/color"
+PARTY_STEPS_RANGE = (5, 15)
+PARTY_WAIT_RANGE = (0.4, 1.5)
 
 THEMES = {
     "party":   ["#FF0040", "#FF8000", "#FFD300", "#00E5FF", "#7D00FF", "#00FF85"],
@@ -21,87 +30,111 @@ THEMES = {
     "forest":  ["#0B6623", "#2D6A4F", "#40916C", "#95D5B2", "#74C69D"],
     "pastel":  ["#FFADAD", "#FFD6A5", "#FDFFB6", "#CAFFBF", "#A0C4FF", "#BDB2FF"],
     "halloween": ["#FF7518", "#000000", "#6A0DAD", "#9B870C", "#8A0303"],
-    "xmas":    ["#FF0000", "#008000", "#FFFFFF", "#006400", "#C41E3A"]
+    "xmas":    ["#FF0000", "#008000", "#FFFFFF", "#006400", "#C41E3A"],
 }
 
-PARTY_STEPS_RANGE = (5, 15)
-PARTY_WAIT_RANGE = (0.4, 1.5)
+
+session = requests.Session()
+retries = Retry(
+    total=3,
+    backoff_factor=0.25,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods={"GET", "PATCH"},
+)
+session.mount("https://", HTTPAdapter(max_retries=retries))
 
 
-is_on = False
-brightness = 0
-color = "#000000"
+def _headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    h = {"Content-Type": "application/json"}
+    if API_KEY:
+        h["X-API-Key"] = API_KEY
+    if extra:
+        h.update(extra)
+    return h
 
-def get_status():
-    global is_on, brightness, color
-    try:
-        r = requests.get(f"{BASE_URL}/cloud/status", verify=VERIFY_SSL)
-        data = r.json()
-        is_on = data.get("is_on", False)
-        brightness = data.get("brightness", 0)
-        color = data.get("color", color)
-        print(f"[STATUS] ON={is_on}, Brightness={brightness}, Color={color}")
-    except Exception as e:
-        print("[ERROR] Failed to get status:", e)
+
+def get_status() -> Dict[str, Any]:
+    r = session.get(f"{BASE_URL}/cloud", verify=VERIFY_TLS, timeout=REQUEST_TIMEOUT, headers=_headers())
+    r.raise_for_status()
+    data = r.json()
+    print(f"[STATUS] enabled={data.get('enabled')} brightness={data.get('brightness')} color={data.get('color')}")
+    return data
+
+
+def patch_cloud(enabled: Optional[bool] = None,
+                brightness: Optional[int] = None,
+                color: Optional[str] = None,
+                idempotency_key: Optional[str] = None) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {}
+    if enabled is not None:
+        payload["enabled"] = bool(enabled)
+    if brightness is not None:
+        payload["brightness"] = int(brightness)
+    if color is not None:
+        color = color.upper()
+        if not (isinstance(color, str) and len(color) == 7 and color.startswith('#')):
+            raise ValueError("color must be in format #RRGGBB")
+        payload["color"] = color
+
+    if not payload:
+        return {"noop": True}
+
+    headers = _headers({})
+    if idempotency_key is None:
+        idempotency_key = str(uuid.uuid4())
+    headers["Idempotency-Key"] = idempotency_key
+
+    r = session.patch(f"{BASE_URL}/cloud", json=payload, verify=VERIFY_TLS, timeout=REQUEST_TIMEOUT, headers=headers)
+    r.raise_for_status()
+    data = r.json()
+    print(f"[PATCH] payload={payload} → applied={data.get('applied')}")
+    return data
+
+
 
 def turn_on():
-    global is_on
-    if not is_on:
-        print("[ACTION] Turning ON")
-        requests.post(  f"{BASE_URL}/cloud/on", verify=VERIFY_SSL)
-        is_on = True
-        wait_between_actions()
-    else:
-        print("[SKIPPED] Already ON")
+    print("[ACTION] Turning ON")
+    patch_cloud(enabled=True)
+
 
 def turn_off():
-    global is_on
-    if is_on:
-        print("[ACTION] Turning OFF")
-        requests.post(f"{BASE_URL}/cloud/off", verify=VERIFY_SSL)
-        is_on = False
-        wait_between_actions()
-    else:
-        print("[SKIPPED] Already OFF")
+    print("[ACTION] Turning OFF")
+    patch_cloud(enabled=False)
 
-def increase_brightness():
-    global brightness
-    if brightness < 100:
-        increment = random.randint(10, 30)
-        brightness = min(100, brightness + increment)
-        print(f"[ACTION] Increasing brightness to {brightness}")
-        requests.post(f"{BASE_URL}/cloud/brightness", json={"level": brightness}, verify=VERIFY_SSL)
-        wait_between_actions()
-    else:
-        print("Brightness already at 100%")
 
-def decrease_brightness():
-    global brightness
-    if brightness > 0:
-        decrement = random.randint(10, 30)
-        brightness = max(0, brightness - decrement)
-        print(f"[ACTION] Decreasing brightness to {brightness}")
-        requests.post(f"{BASE_URL}/cloud/brightness", json={"level": brightness}, verify=VERIFY_SSL)
-        wait_between_actions()
+def increase_brightness(cur: Optional[int] = None):
+    if cur is None:
+        cur = int(get_status().get("brightness", 0))
+    if cur < 100:
+        inc = random.randint(10, 30)
+        new_val = min(100, cur + inc)
+        print(f"[ACTION] Increasing brightness to {new_val}")
+        patch_cloud(brightness=new_val)
     else:
-        print("Brightness already at 0%")
+        print("[SKIP] Brightness already at 100%")
+
+
+def decrease_brightness(cur: Optional[int] = None):
+    if cur is None:
+        cur = int(get_status().get("brightness", 0))
+    if cur > 0:
+        dec = random.randint(10, 30)
+        new_val = max(0, cur - dec)
+        print(f"[ACTION] Decreasing brightness to {new_val}")
+        patch_cloud(brightness=new_val)
+    else:
+        print("[SKIP] Brightness already at 0%")
+
 
 def set_color(hex_color: str):
-    global color
     hex_color = hex_color.upper()
-    if not hex_color.startswith("#") or len(hex_color) != 7:
-        print(f"[WARN] Invalid color '{hex_color}', expected format #RRGGBB")
-        return
     print(f"[ACTION] Setting color to {hex_color}")
-    try:
-        requests.post(COLOR_ENDPOINT, json={"color": hex_color}, verify=VERIFY_SSL)
-        color = hex_color
-    except Exception as e:
-        print("[ERROR] Failed to set color:", e)
-    wait_between_actions()
+    patch_cloud(color=hex_color)
+
 
 def change_color(theme: str = "party"):
-    if not is_on:
+    state = get_status()
+    if not state.get("enabled"):
         print("[INFO] Bulb is OFF, turning on for color change.")
         turn_on()
     palette = THEMES.get(theme.lower(), THEMES["party"])
@@ -109,8 +142,10 @@ def change_color(theme: str = "party"):
     print(f"[SCENARIO] Theme '{theme}' -> color {chosen}")
     set_color(chosen)
 
+
 def party_mode(theme: str = "party"):
-    if not is_on:
+    state = get_status()
+    if not state.get("enabled"):
         print("[INFO] Bulb is OFF, turning on for party mode.")
         turn_on()
 
@@ -122,49 +157,62 @@ def party_mode(theme: str = "party"):
     for _ in range(steps):
         palette = THEMES[current_theme]
         set_color(random.choice(palette))
-        pause = random.uniform(wait_min, wait_max)
-        time.sleep(pause)
+        time.sleep(random.uniform(wait_min, wait_max))
 
-    # Option: petit fade-out lumineux à la fin du party
-    if brightness > 30 and random.random() < 0.5:
+    st = get_status()
+    if st.get("brightness", 0) > 30 and random.random() < 0.5:
         print("[PARTY] Cooling down: dimming a bit.")
-        decrease_brightness()
+        decrease_brightness(st.get("brightness", 0))
+
 
 def wait_between_actions():
     delay = random.randint(2, 10)
     print(f"[WAIT] Waiting {delay} seconds before next action...\n")
     time.sleep(delay)
 
+
 def run_random_scenario():
-    get_status()
+    st = get_status()
+    enabled = bool(st.get("enabled"))
+    bright = int(st.get("brightness", 0))
 
     for _ in range(random.randint(2, 4)):
-        possible_actions = []
-
-        if not is_on:
-            possible_actions.append(turn_on)
+        possible = []
+        if not enabled:
+            possible.append(lambda: (turn_on(), "turn_on"))
         else:
-            possible_actions.append(turn_off)
-            if brightness < 100:
-                possible_actions.append(increase_brightness)
-            if brightness > 0:
-                possible_actions.append(decrease_brightness)
-            possible_actions.append(lambda: change_color(random.choice(list(THEMES.keys()))))
+            possible.append(lambda: (turn_off(), "turn_off"))
+            if bright < 100:
+                possible.append(lambda: (increase_brightness(bright), "inc_brightness"))
+            if bright > 0:
+                possible.append(lambda: (decrease_brightness(bright), "dec_brightness"))
+            possible.append(lambda: (change_color(random.choice(list(THEMES.keys()))), "change_color"))
+
+        if possible:
+            action_fn = random.choice(possible)
+            _, name = action_fn()
+            print(f"[SCENARIO] Executed: {name}")
+            wait_between_actions()
+            st = get_status()
+            enabled = bool(st.get("enabled"))
+            bright = int(st.get("brightness", 0))
 
 
-        if possible_actions:
-            action = random.choice(possible_actions)
-            print(f"[SCENARIO] Executing: {getattr(action, '__name__', 'anonymous')}")
-            try:
-                action()
-            except Exception as e:
-                print(f"[ERROR] action failed: {e}")
-
-def main():
-    print("[SIM] Smart bulb simulator starting with ~11% active time + party color features (sans évolution).")
+def main_loop():
+    print("[SIM] User-like controller using PATCH /cloud")
     while True:
         if random.random() < ACTIVE_RATIO:
             print("[SCHEDULE] Active window: running scenario")
             run_random_scenario()
         else:
             idle_for = random.randint(*IDLE_SLEEP_RANGE)
+            print(f"[SCHEDULE] Idle for {idle_for}s")
+            time.sleep(idle_for)
+        time.sleep(CYCLE_SLEEP)
+
+
+if __name__ == "__main__":
+    try:
+        main_loop()
+    except KeyboardInterrupt:
+        print("\n[SIM] Stopped by user")
