@@ -9,10 +9,10 @@ from urllib3.util import Retry
 from requests.adapters import HTTPAdapter
 
 
-CLOUD_HOST = os.getenv("CLOUD_HOST", "www.cesieat.ovh")  # ton serveur cloud
+CLOUD_HOST = os.getenv("CLOUD_HOST", "www.cesieat.ovh")
 BASE_URL = f"https://{CLOUD_HOST}"
 VERIFY_TLS = os.getenv("VERIFY_TLS", "true").lower() != "false"
-API_KEY = os.getenv("API_KEY")  # optionnel, si activé côté cloud
+API_KEY = os.getenv("API_KEY")  
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "5"))
 
 ACTIVE_RATIO = 0.11
@@ -198,7 +198,7 @@ def run_random_scenario():
             bright = int(st.get("brightness", 0))
 
 
-def main_loop():
+def main():
     print("[SIM] User-like controller using PATCH /cloud")
     while True:
         if random.random() < ACTIVE_RATIO:
@@ -213,6 +213,6 @@ def main_loop():
 
 if __name__ == "__main__":
     try:
-        main_loop()
+        main()
     except KeyboardInterrupt:
         print("\n[SIM] Stopped by user")
