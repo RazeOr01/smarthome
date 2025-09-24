@@ -1,26 +1,47 @@
+#!/usr/bin/env python3
 import os
+import re
 import time
 import random
 import uuid
+import subprocess
 from typing import Optional, Dict, Any
 
 import requests
 from urllib3.util import Retry
 from requests.adapters import HTTPAdapter
 
-
 CLOUD_HOST = os.getenv("CLOUD_HOST", "www.cesieat.ovh")
 BASE_URL = f"https://{CLOUD_HOST}"
 VERIFY_TLS = os.getenv("VERIFY_TLS", "true").lower() != "false"
-API_KEY = os.getenv("API_KEY")  
+API_KEY = os.getenv("API_KEY")
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "5"))
 
-ACTIVE_RATIO = 0.11
-IDLE_SLEEP_RANGE = (60, 300)
-CYCLE_SLEEP = 1
+BACKEND = os.getenv("BACKEND", "mixed").lower()
+MIXED_MATTER_RATIO = float(os.getenv("MIXED_MATTER_RATIO", "0.3"))
+MIXED_STRICT_ALTERNATE = os.getenv("MIXED_STRICT_ALTERNATE", "false").lower() == "true"
 
-PARTY_STEPS_RANGE = (5, 15)
-PARTY_WAIT_RANGE = (0.4, 1.5)
+CHIP_TOOL = os.getenv("CHIP_TOOL", "/opt/chip/chip-tool")
+NODE_ID   = os.getenv("NODE_ID", "1")
+ENDPOINT  = os.getenv("ENDPOINT", "3")
+
+ACTIVE_RATIO = float(os.getenv("ACTIVE_RATIO", "0.11"))
+IDLE_SLEEP_RANGE = (
+    int(os.getenv("IDLE_SLEEP_MIN", "60")),
+    int(os.getenv("IDLE_SLEEP_MAX", "300")),
+)
+CYCLE_SLEEP = float(os.getenv("CYCLE_SLEEP", "1"))
+
+PARTY_STEPS_RANGE = (
+    int(os.getenv("PARTY_STEPS_MIN", "5")),
+    int(os.getenv("PARTY_STEPS_MAX", "15")),
+)
+PARTY_WAIT_RANGE = (
+    float(os.getenv("PARTY_WAIT_MIN", "0.4")),
+    float(os.getenv("PARTY_WAIT_MAX", "1.5")),
+)
+
+ONE_SHOT = os.getenv("ONE_SHOT", "false").lower() == "true"
 
 THEMES = {
     "party":   ["#FF0040", "#FF8000", "#FFD300", "#00E5FF", "#7D00FF", "#00FF85"],
@@ -33,7 +54,6 @@ THEMES = {
     "xmas":    ["#FF0000", "#008000", "#FFFFFF", "#006400", "#C41E3A"],
 }
 
-
 session = requests.Session()
 retries = Retry(
     total=3,
@@ -43,7 +63,6 @@ retries = Retry(
 )
 session.mount("https://", HTTPAdapter(max_retries=retries))
 
-
 def _headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     h = {"Content-Type": "application/json"}
     if API_KEY:
@@ -52,14 +71,12 @@ def _headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         h.update(extra)
     return h
 
-
 def get_status() -> Dict[str, Any]:
     r = session.get(f"{BASE_URL}/cloud", verify=VERIFY_TLS, timeout=REQUEST_TIMEOUT, headers=_headers())
     r.raise_for_status()
     data = r.json()
     print(f"[STATUS] enabled={data.get('enabled')} brightness={data.get('brightness')} color={data.get('color')}")
     return data
-
 
 def patch_cloud(enabled: Optional[bool] = None,
                 brightness: Optional[int] = None,
@@ -90,17 +107,66 @@ def patch_cloud(enabled: Optional[bool] = None,
     print(f"[PATCH] payload={payload} → applied={data.get('applied')}")
     return data
 
+class MatterError(RuntimeError):
+    pass
 
+def _run_chiptool(args: list[str], timeout: float = 6.0) -> str:
+    cmd = [CHIP_TOOL] + args
+    print(f"[MATTER] $ {' '.join(cmd)}")
+    try:
+        cp = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        raise MatterError(f"chip-tool introuvable à {CHIP_TOOL}")
+    except subprocess.TimeoutExpired:
+        raise MatterError("chip-tool timeout")
+
+    if cp.returncode != 0:
+        out = (cp.stdout or "") + (cp.stderr or "")
+        raise MatterError(f"chip-tool failed (rc={cp.returncode}):\n{out}")
+    return cp.stdout or ""
+
+def _matter_on() -> None:
+    _run_chiptool(["onoff", "on", NODE_ID, ENDPOINT])
+
+def _matter_off() -> None:
+    _run_chiptool(["onoff", "off", NODE_ID, ENDPOINT])
+
+def _matter_set_brightness_0_100(level_percent: int) -> None:
+    lvl_254 = int(round(max(0, min(100, level_percent)) * 254 / 100))
+    _run_chiptool([
+        "levelcontrol", "move-to-level-with-on-off",
+        str(lvl_254), "0", "0", "0", NODE_ID, ENDPOINT
+    ])
+
+_last_backend = ["cloud"]
+
+def _pick_backend(for_capability: str) -> str:
+    if for_capability == "color":
+        return "cloud"
+
+    if BACKEND == "mixed":
+        if MIXED_STRICT_ALTERNATE:
+            _last_backend[0] = "matter" if _last_backend[0] == "cloud" else "cloud"
+            return _last_backend[0]
+        return "matter" if random.random() < MIXED_MATTER_RATIO else "cloud"
+
+    return BACKEND
 
 def turn_on():
-    print("[ACTION] Turning ON")
-    patch_cloud(enabled=True)
-
+    backend = _pick_backend("onoff")
+    print(f"[ACTION] Turning ON via {backend.upper()}")
+    if backend == "cloud":
+        patch_cloud(enabled=True)
+    else:
+        _matter_on()
 
 def turn_off():
-    print("[ACTION] Turning OFF")
-    patch_cloud(enabled=False)
-
+    backend = _pick_backend("onoff")
+    print(f"[ACTION] Turning OFF via {backend.upper()}")
+    if backend == "cloud":
+        patch_cloud(enabled=False)
+    else:
+        _matter_off()
 
 def increase_brightness(cur: Optional[int] = None):
     if cur is None:
@@ -108,11 +174,9 @@ def increase_brightness(cur: Optional[int] = None):
     if cur < 100:
         inc = random.randint(10, 30)
         new_val = min(100, cur + inc)
-        print(f"[ACTION] Increasing brightness to {new_val}")
-        patch_cloud(brightness=new_val)
+        set_brightness(new_val)
     else:
         print("[SKIP] Brightness already at 100%")
-
 
 def decrease_brightness(cur: Optional[int] = None):
     if cur is None:
@@ -120,17 +184,23 @@ def decrease_brightness(cur: Optional[int] = None):
     if cur > 0:
         dec = random.randint(10, 30)
         new_val = max(0, cur - dec)
-        print(f"[ACTION] Decreasing brightness to {new_val}")
-        patch_cloud(brightness=new_val)
+        set_brightness(new_val)
     else:
         print("[SKIP] Brightness already at 0%")
 
+def set_brightness(level_percent: int):
+    level_percent = max(0, min(100, int(level_percent)))
+    backend = _pick_backend("brightness")
+    print(f"[ACTION] Set brightness {level_percent}% via {backend.upper()}")
+    if backend == "cloud":
+        patch_cloud(brightness=level_percent)
+    else:
+        _matter_set_brightness_0_100(level_percent)
 
 def set_color(hex_color: str):
     hex_color = hex_color.upper()
-    print(f"[ACTION] Setting color to {hex_color}")
+    print(f"[ACTION] Setting color to {hex_color} via CLOUD")
     patch_cloud(color=hex_color)
-
 
 def change_color(theme: str = "party"):
     state = get_status()
@@ -141,7 +211,6 @@ def change_color(theme: str = "party"):
     chosen = random.choice(palette)
     print(f"[SCENARIO] Theme '{theme}' -> color {chosen}")
     set_color(chosen)
-
 
 def party_mode(theme: str = "party"):
     state = get_status()
@@ -164,12 +233,10 @@ def party_mode(theme: str = "party"):
         print("[PARTY] Cooling down: dimming a bit.")
         decrease_brightness(st.get("brightness", 0))
 
-
 def wait_between_actions():
     delay = random.randint(2, 10)
     print(f"[WAIT] Waiting {delay} seconds before next action...\n")
     time.sleep(delay)
-
 
 def run_random_scenario():
     st = get_status()
@@ -197,9 +264,13 @@ def run_random_scenario():
             enabled = bool(st.get("enabled"))
             bright = int(st.get("brightness", 0))
 
-
 def main():
-    print("[SIM] User-like controller using PATCH /cloud")
+    print(f"[SIM] Mixed controller (BACKEND={BACKEND}, MIXED_STRICT_ALTERNATE={MIXED_STRICT_ALTERNATE}, RATIO={MIXED_MATTER_RATIO})")
+    if ONE_SHOT:
+        print("[SIM] ONE_SHOT enabled → running a single scenario and exiting.")
+        run_random_scenario()
+        return
+
     while True:
         if random.random() < ACTIVE_RATIO:
             print("[SCHEDULE] Active window: running scenario")
@@ -210,9 +281,12 @@ def main():
             time.sleep(idle_for)
         time.sleep(CYCLE_SLEEP)
 
-
 if __name__ == "__main__":
     try:
         main()
+    except MatterError as e:
+        print(f"[ERROR] Matter backend: {e}")
+    except requests.HTTPError as e:
+        print(f"[ERROR] Cloud backend HTTP: {e}")
     except KeyboardInterrupt:
         print("\n[SIM] Stopped by user")
