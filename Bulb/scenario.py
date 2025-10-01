@@ -15,7 +15,8 @@ VERIFY_TLS = os.getenv("VERIFY_TLS", "true").lower() != "false"
 API_KEY = os.getenv("API_KEY") or None
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "5"))
 
-BACKEND = (os.getenv("BACKEND") or random.choice(["cloud", "matter"])).lower()
+def get_backend() -> str:
+    return (os.getenv("BACKEND") or random.choice(["cloud", "matter"])).lower()
 
 CHIP_TOOL = os.getenv("CHIP_TOOL", "/usr/local/bin/chip-tool")
 NODE_ID = os.getenv("MATTER_NODE_ID", "1")
@@ -133,8 +134,6 @@ def matter_set_brightness(percent: int):
     print(f"[ACTION][MATTER] Set brightness {percent}% (level={level})")
     _run_chiptool(["levelcontrol", "move-to-level", str(level), "0", "0", "0", NODE_ID, ENDPOINT])
 
-def matter_set_color(_hex_color: str):
-    print(f"[ACTION][MATTER] Set color ignored (NOOP, ColorControl non implémenté)")
 
 def turn_on():
     if BACKEND == "cloud":
@@ -245,9 +244,10 @@ def run_random_scenario():
             bright = int(st.get("brightness", 0))
 
 def main():
-    print(f"[SIM] User-like controller using backend={BACKEND.upper()} (state via CLOUD)")
     while True:
         if random.random() < ACTIVE_RATIO:
+            backend = get_backend()
+            print(f"[SIM] controller using backend={backend.upper()} (state via CLOUD)")
             print("[SCHEDULE] Active window: running scenario")
             run_random_scenario()
         else:
