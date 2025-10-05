@@ -18,7 +18,8 @@ REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "5"))
 def get_backend() -> str:
     return (os.getenv("BACKEND") or random.choice(["cloud", "matter"])).lower()
 
-CHIP_TOOL = os.getenv("CHIP_TOOL", "/usr/local/bin/chip-tool")
+CHIP_TOOL = os.getenv("CHIP_TOOL", "./out/chip-tool/chip-tool")
+CHIP_TOOL_CWD = os.getenv("CHIP_TOOL_CWD", "/home/ucd/connectedhomeip")
 NODE_ID = os.getenv("MATTER_NODE_ID", "1")
 ENDPOINT = os.getenv("MATTER_ENDPOINT", "3")
 
@@ -96,7 +97,7 @@ def patch_cloud(enabled: Optional[bool] = None,
 def _run_chiptool(argv: list[str]) -> None:
     cmd = [CHIP_TOOL] + argv
     print(f"[MATTER] $ {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, cwd=CHIP_TOOL_CWD)
 
 def _pct_to_level(value_0_100: int) -> int:
     v = max(0, min(100, int(value_0_100)))
@@ -130,72 +131,79 @@ def matter_turn_off():
 
 def matter_set_brightness(percent: int):
     percent = max(0, min(100, int(percent)))
-    level = _pct_to_level(percent)
+    level = max(0, min(100, int(percent)))
     print(f"[ACTION][MATTER] Set brightness {percent}% (level={level})")
-    _run_chiptool(["levelcontrol", "move-to-level", str(level), "0", "0", "0", NODE_ID, ENDPOINT])
+    _run_chiptool([
+        "any", "write-by-id",
+        "0x0008",  # LevelControl
+        "0x0000",  # CurrentLevel
+        str(level),
+        NODE_ID,
+        ENDPOINT
+    ])
 
 
-def turn_on():
-    if BACKEND == "cloud":
+def turn_on(backend):
+    if backend == "cloud":
         cloud_turn_on()
     else:
         matter_turn_on()
 
-def turn_off():
-    if BACKEND == "cloud":
+def turn_off(backend):
+    if backend == "cloud":
         cloud_turn_off()
     else:
         matter_turn_off()
 
-def set_brightness(percent: int):
-    if BACKEND == "cloud":
+def set_brightness(percent: int, backend):
+    if backend== "cloud":
         cloud_set_brightness(percent)
     else:
         matter_set_brightness(percent)
 
-def set_color(hex_color: str):
-    if BACKEND == "cloud":
+def set_color(hex_color: str, backend):
+    if backend == "cloud":
         cloud_set_color(hex_color)
     else:
-        matter_set_color(hex_color)
+        cloud_set_color(hex_color)
 
-def increase_brightness(cur: Optional[int] = None):
+def increase_brightness(backend, cur: Optional[int] = None):
     if cur is None:
         cur = int(get_status().get("brightness", 0))
     if cur < 100:
         inc = random.randint(10, 30)
         new_val = min(100, cur + inc)
         print(f"[ACTION] Increasing brightness to {new_val}")
-        set_brightness(new_val)
+        set_brightness(new_val, backend)
     else:
         print("[SKIP] Brightness already at 100%")
 
-def decrease_brightness(cur: Optional[int] = None):
+def decrease_brightness(backend, cur: Optional[int] = None):
     if cur is None:
         cur = int(get_status().get("brightness", 0))
     if cur > 0:
         dec = random.randint(10, 30)
         new_val = max(0, cur - dec)
         print(f"[ACTION] Decreasing brightness to {new_val}")
-        set_brightness(new_val)
+        set_brightness(new_val, backend)
     else:
         print("[SKIP] Brightness already at 0%")
 
-def change_color(theme: str = "party"):
+def change_color(backend, theme: str = "party"):
     state = get_status()
     if not state.get("enabled"):
         print("[INFO] Bulb is OFF, turning on for color change.")
-        turn_on()
+        turn_on(backend)
     palette = THEMES.get(theme.lower(), THEMES["party"])
     chosen = random.choice(palette)
     print(f"[SCENARIO] Theme '{theme}' -> color {chosen}")
-    set_color(chosen)
+    set_color(chosen, backend)
 
-def party_mode(theme: str = "party"):
+def party_mode(backend, theme: str = "party"):
     state = get_status()
     if not state.get("enabled"):
         print("[INFO] Bulb is OFF, turning on for party mode.")
-        turn_on()
+        turn_on(backend)
 
     current_theme = theme.lower()
     steps = random.randint(*PARTY_STEPS_RANGE)
@@ -204,20 +212,20 @@ def party_mode(theme: str = "party"):
 
     for _ in range(steps):
         palette = THEMES[current_theme]
-        set_color(random.choice(palette))
+        set_color(random.choice(palette), backend )
         time.sleep(random.uniform(wait_min, wait_max))
 
     st = get_status()
     if st.get("brightness", 0) > 30 and random.random() < 0.5:
         print("[PARTY] Cooling down: dimming a bit.")
-        decrease_brightness(st.get("brightness", 0))
+        decrease_brightness(backend, st.get("brightness", 0))
 
 def wait_between_actions():
     delay = random.randint(2, 10)
     print(f"[WAIT] Waiting {delay} seconds before next action...\n")
     time.sleep(delay)
 
-def run_random_scenario():
+def run_random_scenario(backend):
     st = get_status()
     enabled = bool(st.get("enabled"))
     bright = int(st.get("brightness", 0))
@@ -225,14 +233,14 @@ def run_random_scenario():
     for _ in range(3):
         possible = []
         if not enabled:
-            possible.append(lambda: (turn_on(), "turn_on"))
+            possible.append(lambda: (turn_on(backend), "turn_on"))
         else:
-            possible.append(lambda: (turn_off(), "turn_off"))
+            possible.append(lambda: (turn_off(backend), "turn_off"))
             if bright < 100:
-                possible.append(lambda: (increase_brightness(bright), "inc_brightness"))
+                possible.append(lambda: (increase_brightness(backend, bright), "inc_brightness"))
             if bright > 0:
-                possible.append(lambda: (decrease_brightness(bright), "dec_brightness"))
-            possible.append(lambda: (change_color(random.choice(list(THEMES.keys()))), "change_color"))
+                possible.append(lambda: (decrease_brightness(backend, bright), "dec_brightness"))
+            possible.append(lambda: (change_color(backend, random.choice(list(THEMES.keys()))), "change_color"))
 
         if possible:
             action_fn = random.choice(possible)
@@ -249,7 +257,7 @@ def main():
             backend = get_backend()
             print(f"[SIM] controller using backend={backend.upper()} (state via CLOUD)")
             print("[SCHEDULE] Active window: running scenario")
-            run_random_scenario()
+            run_random_scenario(backend)
         else:
             idle_for = random.randint(*IDLE_SLEEP_RANGE)
             print(f"[SCHEDULE] Idle for {idle_for}s")
