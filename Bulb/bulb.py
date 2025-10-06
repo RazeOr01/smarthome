@@ -29,6 +29,7 @@ class SmartBulb:
     def status(self):
         return {
             "is_on": self.is_on,
+            "enabled": self.is_on,
             "brightness": self.brightness,
             "color": self.color
         }

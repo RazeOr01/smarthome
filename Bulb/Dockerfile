@@ -1,4 +1,7 @@
 FROM python:3.11-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 libstdc++6 libgcc-s1 libssl3 libavahi-client3 libavahi-common3 \
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

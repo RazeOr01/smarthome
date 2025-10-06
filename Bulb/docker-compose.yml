@@ -8,6 +8,11 @@ services:
     network_mode: "host"
     cap_add:
       - NET_RAW           # necessary for arping
+    environment:
+      CHIP_TOOL_CWD: /app/connectedhomeip
+      CHIP_TOOL: ./out/chip-tool/chip-tool
+    volumes:
+      - /home/ucd/connectedhomeip:/app/connectedhomeip:ro
 #    depends_on:
 #      - cloud
 
